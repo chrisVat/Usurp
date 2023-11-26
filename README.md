@@ -1,14 +1,9 @@
 # Usurp
 Coresets for Supervised Learning using Unsupservised Learning
 
-run main.py to try the code  
-subset_sampler has different coreset sampling techniques  
-distances is for getting distance from embeddings   
+First generate embeddings for your data as a np file, then use save_distances.py to do clustering.  
+Then you can use those distances with main.py for coreset selection.    
 I am using python 3.10.4  
 
-
-
-# TODO:  
-Get code to save embeddings given contrastive model   
-Get code to train contrastive model / load trained model   
+# TODO:     
 Explore different sampling techniques   
