@@ -2,6 +2,7 @@
 from abc import ABC, abstractmethod
 import torch
 import numpy as np
+from distances import DistanceCalculator
 # custom sampler passed to dataloader to get subset of dataset
 
 # https://pytorch.org/docs/stable/_modules/torch/utils/data/sampler.html#SequentialSampler
@@ -21,11 +22,14 @@ def get_sampler(technique, dataset_len, subset_percentage, generator=None):
 
 
 class SubsetSampler(ABC):
-    def __init__(self, dataset_len, subset_percentage, generator=None):
+    def __init__(self, dataset_len, subset_percentage, generator=None, embedding_path="embeddings/cifar_10_trained/train.npy"):
         self.dataset_len = dataset_len
         self.subset_percentage = subset_percentage
         self.generator = generator
         self.subset_len = int(self.dataset_len * self.subset_percentage)
+        self.distance_sampler = DistanceCalculator()
+        self.distances = torch.from_numpy(self.distance_sampler.get_distances())
+        # self.distances = torch.from_numpy(self.distances)
     
     def __iter__(self):
         indice_list = self.get_indices()
@@ -60,7 +64,7 @@ class MovingDistanceSampler(SubsetSampler):
         super().__init__(dataset_len, subset_percentage, generator)
         self.distances = torch.zeros(self.dataset_len)
         # assign uniform random values from 0 to 1 for now
-        self.distances = torch.rand(self.dataset_len)
+        # self.distances = torch.rand(self.dataset_len)
         self.loss_p=0.9
         self.avg_loss = None
         self.ind = None
