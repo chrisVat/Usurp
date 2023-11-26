@@ -8,6 +8,13 @@ import argparse
 from subset_sampler import get_sampler, SAMPLER_TECHNIQUES
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
+import random 
+
+random.seed(42)
+torch.manual_seed(42)
+torch.cuda.manual_seed(42)
+np.random.seed(42)
+torch.backends.cudnn.deterministic = True
 
 
 class ExperimentRunner():
@@ -45,7 +52,8 @@ class ExperimentRunner():
         trainset = torchvision.datasets.CIFAR10(root='./data', train=True,
                                                 download=True, transform=transform_train)
         
-        self.sampler = get_sampler(technique=self.sample_technique, dataset_len=len(trainset), subset_percentage = args.k)
+        distance_path = args.distance_path + args.distance_technique + "_distances.npy"
+        self.sampler = get_sampler(technique=self.sample_technique, dataset_len=len(trainset), subset_percentage = args.k, distance_path=distance_path)
         trainloader = torch.utils.data.DataLoader(trainset, batch_size=self.args.train_batch,
                                                   sampler=self.sampler, num_workers=2)  
         
@@ -164,6 +172,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Resnet Finetuner")
     parser.add_argument("--lr", default=0.1, type=float, help="learning rate")
     parser.add_argument("--st", default="mtds", type=str, help="Sampling Technique", choices=SAMPLER_TECHNIQUES)
+    parser.add_argument("--distance_path", default="embeddings/cifar_10_trained/", type=str, help="Path to distances npy file")
+    parser.add_argument("--distance_technique", default="skmedoids_per_class", type=str, help="The cluster technique used")
     parser.add_argument("--gpu", default=0, type=int, help="gpu id")
     parser.add_argument("--epochs", default=2, type=int, help="epochs")
     parser.add_argument("--momentum", default=0.9, type=float, help="momentum")

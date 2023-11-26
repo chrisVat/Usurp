@@ -1,7 +1,17 @@
 import numpy as np
 import torchvision
+import torch
 from distances import get_distance_calculator, DISTANCE_TECHNIQUES
 import argparse
+import random
+
+random.seed(42)
+np.random.seed(42)
+torch.manual_seed(42)
+torch.cuda.manual_seed(42)
+torch.backends.cudnn.deterministic = True
+
+
 
 def main(args):
     cifar_data = torchvision.datasets.CIFAR10(root='./data', train=True, download=True)
@@ -22,10 +32,13 @@ def main(args):
     else:
         medoids = dist_calc.get_medoids()
     print("Medoids shape: ", medoids.shape)
-    np.save(args.save_dir + "medoids.npy", medoids)
+    
+    technique_name = args.technique + "_per_class" if args.per_class else args.technique
+
+    np.save(args.save_dir + technique_name + "_medoids.npy", medoids)
     distances = dist_calc.get_distances_with_medoids(medoids)
     print("Distances: ", distances)
-    np.save(args.save_dir + "distances.npy", distances)
+    np.save(args.save_dir + technique_name + "_distances.npy", distances)
 
 
 if __name__ == "__main__":

@@ -2,7 +2,6 @@
 from abc import ABC, abstractmethod
 import torch
 import numpy as np
-from distances import DistanceCalculator
 # custom sampler passed to dataloader to get subset of dataset
 
 # https://pytorch.org/docs/stable/_modules/torch/utils/data/sampler.html#SequentialSampler
@@ -11,25 +10,23 @@ SAMPLER_TECHNIQUES = ["random", "mtds", "mds"]
 __all__ = ["get_sampler", "SAMPLER_TECHNIQUES"]
 
 
-def get_sampler(technique, dataset_len, subset_percentage, generator=None):
+def get_sampler(technique, dataset_len, subset_percentage, distance_path, generator=None):
     assert technique in SAMPLER_TECHNIQUES, f"Technique {technique} not supported. Choose from {SAMPLER_TECHNIQUES}"
     if technique == "random":
-        return RandomSampler(dataset_len, subset_percentage, generator)
+        return RandomSampler(dataset_len, subset_percentage, distance_path, generator)
     elif technique == "mtds":
-        return MovingTargetDistanceSampler(dataset_len, subset_percentage, generator)
+        return MovingTargetDistanceSampler(dataset_len, subset_percentage, distance_path, generator)
     elif technique == "mds":
-        return MovingDistanceSampler(dataset_len, subset_percentage, generator)
+        return MovingDistanceSampler(dataset_len, subset_percentage, distance_path, generator)
 
 
 class SubsetSampler(ABC):
-    def __init__(self, dataset_len, subset_percentage, generator=None, embedding_path="embeddings/cifar_10_trained/train.npy"):
+    def __init__(self, dataset_len, subset_percentage, distance_path="embeddings/cifar_10_trained/train.npy", generator=None):
         self.dataset_len = dataset_len
         self.subset_percentage = subset_percentage
         self.generator = generator
         self.subset_len = int(self.dataset_len * self.subset_percentage)
-        self.distance_sampler = DistanceCalculator()
-        self.distances = torch.from_numpy(self.distance_sampler.get_distances())
-        # self.distances = torch.from_numpy(self.distances)
+        self.distances = torch.from_numpy(np.load(distance_path))
     
     def __iter__(self):
         indice_list = self.get_indices()
@@ -49,8 +46,8 @@ class SubsetSampler(ABC):
 
 
 class RandomSampler(SubsetSampler):
-    def __init__(self, dataset_len, subset_percentage, generator=None):
-        super().__init__(dataset_len, subset_percentage, generator)
+    def __init__(self, dataset_len, subset_percentage, distance_path="embeddings/cifar_10_trained/train.npy", generator=None):
+        super().__init__(dataset_len, subset_percentage, distance_path, generator)
 
     def get_indices(self):
         return torch.randperm(self.dataset_len, generator=self.generator)[:self.subset_len]
@@ -60,11 +57,8 @@ class RandomSampler(SubsetSampler):
 
 
 class MovingDistanceSampler(SubsetSampler):
-    def __init__(self, dataset_len, subset_percentage, generator=None):
-        super().__init__(dataset_len, subset_percentage, generator)
-        self.distances = torch.zeros(self.dataset_len)
-        # assign uniform random values from 0 to 1 for now
-        # self.distances = torch.rand(self.dataset_len)
+    def __init__(self, dataset_len, subset_percentage, distance_path="embeddings/cifar_10_trained/train.npy", generator=None):
+        super().__init__(dataset_len, subset_percentage, distance_path, generator)
         self.loss_p=0.9
         self.avg_loss = None
         self.ind = None
@@ -90,10 +84,8 @@ class MovingDistanceSampler(SubsetSampler):
 
 
 class MovingTargetDistanceSampler(SubsetSampler):
-    def __init__(self, dataset_len, subset_percentage, generator=None):
-        super().__init__(dataset_len, subset_percentage, generator)
-        self.distances = torch.zeros(self.dataset_len)
-        self.distances = torch.rand(self.dataset_len)
+    def __init__(self, dataset_len, subset_percentage, distance_path="embeddings/cifar_10_trained/train.npy", generator=None):
+        super().__init__(dataset_len, subset_percentage, distance_path, generator)
         self.loss_p=0.9
         self.avg_loss = None
         self.ind = None
