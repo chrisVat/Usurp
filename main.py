@@ -136,8 +136,12 @@ class ExperimentRunner():
         train_loss /= total
         self.writer.add_scalar('train_loss', train_loss, epoch*self.args.k)
         
-        if int(epoch * self.args.k) + 0.99 == int(epoch * self.args.k):
-            self.scheduler.step()
+        # scheduling per 1/k epochs gives way worse performance but a more fair comparison
+        # if int(epoch * self.args.k + 0.99) == int(epoch * self.args.k):
+        #     self.scheduler.step()
+        
+        self.scheduler.step()
+        
         self.sampler.feedback({"losses": losses, "corrects": corrects, "batch_size": self.args.train_batch})
         
     

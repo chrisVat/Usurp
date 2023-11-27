@@ -105,6 +105,7 @@ class MovingTargetDistanceSampler(SubsetSampler):
         
         self.dist_momentum = 0
         self.dist_momentum_p = 0.9
+        
         # normalize distances from 0 to 1
         self.distances = self.distances/self.distances.max()
 
@@ -138,6 +139,7 @@ class MovingTargetDistanceSampler(SubsetSampler):
             percent_shift = 1
         
         dist_shift = percent_shift * self.dist_shift
+        dist_shift = max(dist_shift, 0) # can't decrease anymore
 
         self.dist_momentum = self.dist_momentum_p*self.dist_momentum + (1-self.dist_momentum_p)*dist_shift
         # update distance using dist_momentum, BUT, scale down the shift if it too large. 
@@ -147,6 +149,10 @@ class MovingTargetDistanceSampler(SubsetSampler):
             update_amount = update_amount * (1-(self.distance_pref+update_amount))
         else:
             update_amount = update_amount * (self.distance_pref+update_amount) 
+
+        update_amount = min(update_amount, 4*self.dist_shift)
+        update_amount = max(update_amount, 0)
+
         self.distance_pref += update_amount
         self.distance_pref = min(self.distance_pref, 1)
         self.distance_pref = max(self.distance_pref, 0)
@@ -197,7 +203,7 @@ class AccuracyDistanceSampler(SubsetSampler):
         self.total_epochs = 400
         self.update_amount = (1-self.distance_pref)/self.total_epochs
         # Old distance cleaning
-        # self.distances = self.distances/self.distances.max()
+        # self.distances = self.distances/s elf.distances.max()
 
     def get_indices(self):
         dist_from_pref = torch.abs(self.distances - self.distance_pref) 
