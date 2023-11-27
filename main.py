@@ -9,6 +9,7 @@ from subset_sampler import get_sampler, SAMPLER_TECHNIQUES
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
 import random 
+import np as np
 
 random.seed(42)
 torch.manual_seed(42)
@@ -25,12 +26,13 @@ class ExperimentRunner():
         self.sampler = None
         self.model = self.load_model()
         self.optimizer = self.load_optimizer()
+        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=args.epochs)
         self.criterion = nn.CrossEntropyLoss()
         self.single_example_loss = nn.CrossEntropyLoss(reduction="none")
         self.current_epoch = 0
         self.save_checkpoints = args.save_checkpoints
         self.total_epochs = args.epochs
-        self.exp_name = f"{args.lr}_{args.momentum}_{args.weight_decay}_{args.train_batch}_{args.k}"
+        self.exp_name = f"{args.lr}_{args.momentum}_{args.weight_decay}_{args.train_batch}_{args.k}_{args.st}_{args.distance_technique}"
         self.writer = SummaryWriter("logs/" + self.exp_name + "/")
         self.train_loader, self.test_loader = self.load_data()
 
@@ -130,8 +132,12 @@ class ExperimentRunner():
                 self.optimizer.step()
                 train_loss += loss.item()
                 t.set_description(f"Tr_E [{epoch}/{self.total_epochs}], Loss: {train_loss /(total):.6f}  AvgAcc: {100. * correct / total:.3f}% ")
-
-        self.writer.add_scalar('train_loss', train_loss, epoch)
+        self.writer.add_scalar('train_acc', 100. * correct / total, epoch*self.args.k)
+        train_loss /= total
+        self.writer.add_scalar('train_loss', train_loss, epoch*self.args.k)
+        
+        if int(epoch * self.args.k) + 0.99 == int(epoch * self.args.k):
+            self.scheduler.step()
         self.sampler.feedback({"losses": losses, "corrects": corrects, "batch_size": self.args.train_batch})
         
     
@@ -153,7 +159,9 @@ class ExperimentRunner():
 
                     t.set_description(f"Ts_E [{epoch}/{self.total_epochs}]  Loss: {test_loss / total:.6f}  AvgAcc: {100. * correct / total:.3f}% ")
         test_loss /= len(self.test_loader.dataset)
-        self.writer.add_scalar('test_loss', test_loss, epoch)
+        # also save time per epoch
+        self.writer.add_scalar('test_loss', test_loss, epoch*self.args.k)
+        self.writer.add_scalar('test_acc', 100. * correct / total, epoch * self.args.k)
         if self.save_checkpoints:
             self.save_checkpoint()
     
@@ -175,16 +183,18 @@ if __name__ == "__main__":
     parser.add_argument("--distance_path", default="embeddings/cifar_10_trained/", type=str, help="Path to distances npy file")
     parser.add_argument("--distance_technique", default="skmedoids_per_class", type=str, help="The cluster technique used")
     parser.add_argument("--gpu", default=0, type=int, help="gpu id")
-    parser.add_argument("--epochs", default=2, type=int, help="epochs")
+    parser.add_argument("--epochs", default=500, type=int, help="epochs")
     parser.add_argument("--momentum", default=0.9, type=float, help="momentum")
     parser.add_argument("--weight_decay", default=5e-4, type=float, help="weight_decay")
     parser.add_argument("--train_batch", default=128, type=int, help="train batch size")
     parser.add_argument("--test_batch", default=512, type=int, help="test batch size")
-    parser.add_argument("--save_checkpoints", default=False, type=bool, help="save_checkpoints")
-    parser.add_argument("--k", default=0.1, type=float, help="subset percentage")
+    parser.add_argument("--save_checkpoints", default=True, type=bool, help="save_checkpoints")
+    parser.add_argument("--k", default=0.2, type=float, help="subset percentage")
     args = parser.parse_args()    
     # torch.cuda.set_device(args.gpu)
     
+    # full experiment started 1:49pm, 11/26/2023
+
     experiment = ExperimentRunner(args)
     experiment.run()
 
