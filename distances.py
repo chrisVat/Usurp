@@ -10,10 +10,10 @@ from sklearn.preprocessing import StandardScaler
 import kmedoids as km
 
 DISTANCE_TECHNIQUES = ["fasterpam", "clarans", "kmedoids", "skmedoids"]
-__all__ = ["get_distance_calculator", "TECHNIQUES"]
+__all__ = ["get_distance_calculator", "DISTANCE_TECHNIQUES"]
 
 def get_distance_calculator(technique, embedding_path, num_labels, use_reduced_for_medoids=True, use_reduced_for_dist=True):
-    assert technique in DISTANCE_TECHNIQUES, f"Technique {technique} not supported. Choose from {TECHNIQUES}"
+    assert technique in DISTANCE_TECHNIQUES, f"Technique {technique} not supported. Choose from {DISTANCE_TECHNIQUES}"
     if technique == "fasterpam":
         return FasterPam(embedding_path, num_labels, use_reduced_for_medoids, use_reduced_for_dist)
     elif technique == "clarans":
