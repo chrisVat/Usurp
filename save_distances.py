@@ -12,7 +12,6 @@ torch.cuda.manual_seed(42)
 torch.backends.cudnn.deterministic = True
 
 
-
 def main(args):
     cifar_data = torchvision.datasets.CIFAR10(root='./data', train=True, download=True)
     labels = np.array(cifar_data.targets)
@@ -36,9 +35,21 @@ def main(args):
     technique_name = args.technique + "_per_class" if args.per_class else args.technique
 
     np.save(args.save_dir + technique_name + "_medoids.npy", medoids)
+
+    # Save distance
     distances = dist_calc.get_distances_with_medoids(medoids)
-    print("Distances: ", distances)
+    print(f"Distances Shape: {distances.shape}")
     np.save(args.save_dir + technique_name + "_distances.npy", distances)
+
+    # Save distance to all medoids
+    distances = dist_calc.get_distances_to_all_medoids(medoids)
+    print(f"Distances Shape: {distances.shape}")
+    np.save(args.save_dir + technique_name + "_all_distances.npy", distances)
+
+    # Save labels of every data points
+    labels = dist_calc.get_labels(medoids)
+    print(f"Label Shape: {labels.shape}")
+    np.save(args.save_dir + technique_name + "_labels.npy", labels)
 
 
 if __name__ == "__main__":
