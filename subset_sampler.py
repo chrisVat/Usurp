@@ -339,6 +339,9 @@ class HierarchicalSubclusterSampler():
     def __len__(self):
         return len(self.indices)
 
+    def feedback(self, feedback):
+        pass
+
 
 class ClusterEdgeSampler():
     def __init__(self):
@@ -382,3 +385,5 @@ class ClusterEdgeSampler():
     def __len__(self):
         return len(self.indices)
 
+    def feedback(self, feedback):
+        pass
