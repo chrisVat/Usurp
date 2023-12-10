@@ -5,11 +5,13 @@ import numpy as np
 from sklearn.cluster import DBSCAN
 import torchvision
 from sklearn.cluster import AgglomerativeClustering
+import itertools
+from scipy.cluster.hierarchy import linkage, fcluster
 # custom sampler passed to dataloader to get subset of dataset
 
 # https://pytorch.org/docs/stable/_modules/torch/utils/data/sampler.html#SequentialSampler
 
-SAMPLER_TECHNIQUES = ["random", "mtds", "mds", "ltds", "ads", "topk", "sa", "prob", "hisu"]
+SAMPLER_TECHNIQUES = ["random", "mtds", "mds", "ltds", "ads", "topk", "prob", "hisu", "ce"]
 __all__ = ["get_sampler", "SAMPLER_TECHNIQUES"]
 
 
@@ -26,14 +28,17 @@ def get_sampler(technique, dataset_len, subset_percentage, distance_path, genera
         return LinearTargetDistanceSampler(dataset_len, subset_percentage, distance_path, generator)
     elif technique == "ads":
         return AccuracyDistanceSampler(dataset_len, subset_percentage, distance_path, generator)
+    # Top K
     elif technique.lower() == "topk":
         return TopKDistanceSampler(dataset_len, subset_percentage, distance_path, generator)
-    elif technique.lower() == "sa":
-        return SilhouetteAnalysisDistanceSampler(dataset_len, subset_percentage, distance_path, generator)
+    # Probability
     elif technique.lower() == "prob":
         return ProbabilityDistanceSampler(dataset_len, subset_percentage, distance_path, generator)
+    # Hierarchical Subcluster
     elif technique.lower() == "hisu":
-        return HierarchicalSubClusterSampler(dataset_len, subset_percentage, distance_path, generator)
+        return HierarchicalSubclusterSampler()
+    elif technique.lower() == "ce":
+        return ClusterEdgeSampler()
 
 
 class SubsetSampler(ABC):
@@ -54,10 +59,6 @@ class SubsetSampler(ABC):
 
     def __len__(self):
         return self.subset_len
-
-    def load_labels(self):
-        cifar_data = torchvision.datasets.CIFAR10(root='./data', train=True, download=True)
-        self.labels = np.array(cifar_data.targets)
 
     def load_cluster_mapping(self):
         self.cluster_mapping = None
@@ -253,50 +254,6 @@ class TopKDistanceSampler(SubsetSampler):
         pass
 
 
-# Use a Silhouette Analysis score to value the distance
-class SilhouetteAnalysisDistanceSampler(SubsetSampler):
-    def __init__(self, dataset_len, subset_percentage, distance_path="embeddings/cifar_10_trained/train.npy", generator=None):
-        super().__init__(dataset_len, subset_percentage, distance_path, generator)
-        self.distances = np.array(self.distances)       # Change the type for easier calculation
-        self.load_cluster_mapping()
-        self.cluster_mapping = np.array(self.cluster_mapping)
-        self.n_clusters = len(np.unique(self.cluster_mapping))
-
-    def silhouette_analysis(self):
-        silhouette_vals = np.zeros(self.cluster_mapping.shape)
-
-        # traverse all class
-        for i_cluster in range(self.n_clusters):
-            # Intra-cluster distance (distance to own medoid)
-            intra_distance = [d for d, l in zip(self.distances, self.cluster_mapping) if l == i_cluster]
-
-            # Inter-cluster distance (distance to nearest medoid of other cluster)
-            # inter_distance = np.array([min(self.distances[self.cluster_mapping == j][self.cluster_mapping != i_cluster]) if len(self.distances[self.cluster_mapping == j][self.cluster_mapping != i_cluster]) > 0 else np.inf for j in range(self.n_clusters)])
-            inter_distance = np.empty(self.n_clusters)
-            for i in range(self.n_clusters):
-                current_cluster_distances = self.distances[self.cluster_mapping == i]       # Get distances for the current cluster
-                min_distances = []                      # Initialize a list to store minimum distances to other clusters
-                for j in range(self.n_clusters):
-                    if i == j:          # Skip if it's the same cluster
-                        continue
-                    # Get distances to other cluster
-                    other_cluster_distances = self.distances[self.cluster_mapping == j]
-                    # Calculate the minimum distance to the other cluster
-                    min_distance = np.min(current_cluster_distances[other_cluster_distances != i])
-                    min_distances.append(min_distance)
-                # If there are no distances (i.e., the cluster is isolated)
-                inter_distance[i] = np.inf if not min_distances else np.min(min_distances)
-            inter_distance = inter_distance[np.newaxis].T  # Convert to column vector for broadcasting
-
-            # Silhouette values for points in this cluster
-            silhouette_vals[self.cluster_mapping == i_cluster] = (inter_distance - intra_distance) / np.maximum(intra_distance, inter_distance)
-
-        # Handling case where a cluster has only one point
-        silhouette_vals[np.isnan(silhouette_vals)] = 0
-
-        return np.mean(silhouette_vals), silhouette_vals
-
-
 # Select data based on the probability
 class ProbabilityDistanceSampler(SubsetSampler):
     def __init__(self, dataset_len, subset_percentage, distance_path="embeddings/cifar_10_trained/train.npy", generator=None):
@@ -331,69 +288,97 @@ class ProbabilityDistanceSampler(SubsetSampler):
         pass
 
 
-# Get Sub-cluster
-class HierarchicalSubClusterSampler(SubsetSampler):
-    def __init__(self, dataset_len, subset_percentage, distance_path="embeddings/cifar_10_trained/train.npy", generator=None):
-        super().__init__(dataset_len, subset_percentage, distance_path, generator)
+# Hierarchical SubCluster Sampler (Too Time-consuming)
+class HierarchicalSubclusterSampler():
+    def __init__(self):
+        print("Into Class")
+        self.embeddings = np.load("C:\\Users\\11597\\Desktop\\Usurp\\embeddings\\cifar_10_trained\\train_embeddings.npy")
+        self.num_clusters = 20
+        self.num_points_per_cluster = 100
+        self.indices = self.get_indices()     # Save the subset indices
 
-        self.n_sub_clusters = 5     # Number of sub-clusters within each primary cluster.
-        self.subset_size = 0.2      # Fixed proportion of points to select from each sub-cluster.
-        self.sub_cluster_models = {}
-        self.subset_indices = {}
-        self.load_cluster_mapping()
-
-    # Fit Subcluster and extract subset indices
-    def fit(self, X, cluster_medoids):
-        """
-        :param X: The data to be clustered.
-        :param cluster_medoids: The medoids (central points) of the initial clusters.
-        """
-        # Perform hierarchical sub-clustering within each primary cluster
-        self.subcluster_mapping = np.zeros_like(self.cluster_mapping)
-        sub_cluster_label_start = 100
-
-        # Traverse all the medoids
-        for i_cluster_medoid in cluster_medoids:
-            # Extract data points and their indices belonging to the current primary cluster
-            cluster_indices = np.where(self.cluster_mapping == i_cluster_medoid)
-            cluster_data = X[cluster_indices]
-
-            # Apply hierarchical clustering to this subset
-            hierarchical = AgglomerativeClustering(n_clusters=self.n_sub_clusters)
-            sub_clusters = hierarchical.fit_predict(cluster_data)
-            self.sub_cluster_models[i_cluster_medoid] = hierarchical
-
-            # Assign unique sub-cluster labels
-            self.subcluster_mapping[cluster_indices] = sub_clusters + sub_cluster_label_start
-
-            # Increment the starting index for the next primary cluster
-            sub_cluster_label_start += 100
-
-            # Extract subsets
-            for sub_cluster in np.unique(sub_clusters):
-                sub_cluster_data_indices = cluster_indices[sub_clusters == sub_cluster]
-                sub_cluster_data = cluster_data[sub_clusters == sub_cluster]
-
-                # Determine the number of points to select
-                if isinstance(self.subset_size, float):
-                    n_points = int(np.ceil(len(sub_cluster_data) * self.subset_size))
-                else:
-                    n_points = min(len(sub_cluster_data), self.subset_size)
-
-                # Select the closest n_points to the medoid
-                distances = np.linalg.norm(sub_cluster_data - i_cluster_medoid, axis=1)
-                closest_indices = np.argsort(distances)[:n_points]
-                self.subset_indices[(i_cluster_medoid, sub_cluster)] = sub_cluster_data_indices[closest_indices]
-
-    def get_sub_cluster_assignments(self):
-        return self.subcluster_mapping     # An array of sub-cluster assignments.
-
+    # Perform hierarchical clustering and select indices of a subset of data points from each cluster.
     def get_indices(self):
         """
-        Get the indices of the extracted subsets.
-
-        :return: A dictionary of subset indices keyed by (medoid, sub-cluster) pairs.
+        :param num_clusters: The number of clusters to form.
+        :param num_points_per_cluster: The number of point indices to select from each cluster.
         """
-        return self.subset_indices
+        Z = linkage(self.embeddings, method='ward')         # Perform hierarchical clustering
+        print("Finish Linkage")
+        cluster_labels = fcluster(Z, self.num_clusters, criterion='maxclust')        # Assign cluster labels
+        print(f"cluster_labels: {cluster_labels}")
 
+        # Initialize a dictionary to hold indices of subsets from each cluster
+        self.indices = np.array([])
+
+        print("get indices")
+
+        # Loop over each cluster and select a subset of data points
+        for i_cluster_id in range(1, self.num_clusters + 1):
+            print(f"i_cluster_id: {i_cluster_id}")
+            # Find indices of data points in this cluster
+            indices_in_cluster = np.where(cluster_labels == i_cluster_id)[0]
+
+            # Select a subset of indices from this cluster
+            if len(indices_in_cluster) > self.num_points_per_cluster:
+                selected_indices = np.random.choice(indices_in_cluster, self.num_points_per_cluster, replace=False)
+            else:
+                selected_indices = indices_in_cluster
+
+            # Store the indices
+            self.indices = np.append(self.indices, selected_indices)
+
+        print("Finish: Get Indices")
+
+        return self.indices
+
+    def __iter__(self):
+        for i_indice in self.indices:
+            yield i_indice
+
+    def __len__(self):
+        return len(self.indices)
+
+
+class ClusterEdgeSampler():
+    def __init__(self):
+        self.distance_matrix = np.load("C:\\Users\\11597\\Desktop\\Usurp\\embeddings\\cifar_10_trained\\skmedoids_per_class_all_distances.npy")
+        self.labels = np.load("C:\\Users\\11597\\Desktop\\Usurp\\embeddings\\cifar_10_trained\\skmedoids_per_class_labels.npy")
+        self.indices = self.get_indices()
+        print(self.indices.shape)
+        print(self.indices[0: 5])
+
+    # Select data points that are near the edge of a cluster's radius
+    def get_indices(self, num_samples_per_cluster=100, edge_percentage=0.1):
+        """
+        :param distance_matrix: A 2D numpy array where rows are data points and columns are distances to each cluster's medoid.
+        :param num_samples_per_cluster: Number of samples to select per cluster.
+        :param edge_percentage: Percentage to define the edge of the clusters.
+        :return: the indices to select
+        """
+        num_clusters = self.distance_matrix.shape[1]
+        edge_samples_indices = []
+
+        for cluster_id in range(num_clusters):
+            distances = self.distance_matrix[np.where(self.labels == cluster_id)[0]]        # Extract distances for the current cluster
+            edge_threshold = np.quantile(distances, 1 - edge_percentage)    # Determine the edge threshold for this cluster
+            edge_indices = np.where(distances >= edge_threshold)[0]     # Find indices of data points near the edge of the cluster
+
+            # If there are more edge points than required samples, select randomly
+            if len(edge_indices) > num_samples_per_cluster:
+                selected_indices = np.random.choice(edge_indices, num_samples_per_cluster, replace=False)
+            else:
+                selected_indices = edge_indices
+
+            # Append the new indices
+            edge_samples_indices.extend(selected_indices)
+
+        return np.array(edge_samples_indices)
+
+    def __iter__(self):
+        for i_indice in self.indices:
+            yield i_indice
+
+    def __len__(self):
+        return len(self.indices)
 
