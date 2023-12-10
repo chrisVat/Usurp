@@ -96,8 +96,8 @@ class Distance(ABC):
 
     # Get medoids but the implementation is from _get_medoids()
     def get_medoids(self):
-        data_idxs = np.arange(len(self.reduced_embeddings))     # Either reduced ot raw embeddings share the same length
-        medoids_idxs = self._get_medoids(data_idxs)             # Get the medoids
+        data_idxs = np.arange(len(self.reduced_embeddings))         # Either reduced ot raw embeddings share the same length
+        medoids_idxs= self._get_medoids(data_idxs)              # Get the medoids
         return np.array(self.get_embeddings_for_distance()[medoids_idxs])
 
     # Get the medoid from the subset (like in subset by class)
@@ -125,6 +125,33 @@ class Distance(ABC):
                 medoids.append(medoid)
 
         return np.array(medoids)
+
+    # Get distances to all the medoids
+    def get_distances_to_all_medoids(self, medoids):
+        embeddings_for_dist = self.get_embeddings_for_distance()
+        distances = np.zeros((self.raw_embeddings.shape[0], medoids.shape[0]))  # num_points * num_medoids
+
+        # Iterate all embeddings
+        for i_idx, embedding in enumerate(embeddings_for_dist):
+            all_distances = np.linalg.norm(embedding - medoids, axis=1)     # Calculate distances to all medoids
+            # Store the minimum distance and distances to all other medoids
+            # min_distance = np.min(all_distances)      # Find the minimum distance (to the assigned medoid)
+            # distances[i_idx, 0], distances[i_idx, 1:] = min_distance, all_distances
+            distances[i_idx, :] = all_distances
+
+        return distances
+
+    # Get labels of all data points, about which cluster this data belongs to
+    def get_labels(self, medoids):
+        embeddings_for_dist = self.get_embeddings_for_distance()
+        labels = np.zeros(self.raw_embeddings.shape[0])
+
+        # Iterate all embeddings
+        for i_idx, embedding in enumerate(embeddings_for_dist):
+            all_distances = np.linalg.norm(embedding - medoids, axis=1)     # Calculate distances to all medoids
+            labels[i_idx] = np.argmin(all_distances)
+
+        return labels
 
 
 # per class, fastest
@@ -165,7 +192,7 @@ class Kmedoids(Distance):
         num_clusters = int(self.num_labels*self.num_clusters_per_class * (len(data_idxs) / len(self.reduced_embeddings)))
         initial_index_medoids = np.random.randint(0, len(relevant_embeddings), num_clusters)
         medoids = kmedoids(relevant_embeddings, initial_index_medoids).process()
-        return medoids.get_medoids()
+        return medoids.get_medoids(), None
 
 
 class SKmedoids(Distance):
