@@ -6,11 +6,11 @@ import numpy as np
 
 # https://pytorch.org/docs/stable/_modules/torch/utils/data/sampler.html#SequentialSampler
 
-SAMPLER_TECHNIQUES = ["random", "mtds", "mds", "ltds", "ads"]
+SAMPLER_TECHNIQUES = ["random", "mtds", "mds", "ltds", "ads", "sds", "srds", "lsds", "smds", "srbds"]
 __all__ = ["get_sampler", "SAMPLER_TECHNIQUES"]
 
 
-def get_sampler(technique, dataset_len, subset_percentage, distance_path, generator=None):
+def get_sampler(technique, dataset_len, subset_percentage, distance_path, labels, generator=None):
     assert technique in SAMPLER_TECHNIQUES, f"Technique {technique} not supported. Choose from {SAMPLER_TECHNIQUES}"
     if technique == "random":
         return RandomSampler(dataset_len, subset_percentage, distance_path, generator)
@@ -22,6 +22,18 @@ def get_sampler(technique, dataset_len, subset_percentage, distance_path, genera
         return LinearTargetDistanceSampler(dataset_len, subset_percentage, distance_path, generator)
     elif technique == "ads":
         return AccuracyDistanceSampler(dataset_len, subset_percentage, distance_path, generator)
+    # largest
+    elif technique == "sds":
+        return StaticDistanceSampler(dataset_len, subset_percentage, distance_path, generator)
+    # smallest
+    elif technique == "lsds":
+        return LargestStaticDistanceSampler(dataset_len, subset_percentage, distance_path, generator)
+    elif technique == "srds":
+        return StaticRandomDistanceSampler(dataset_len, subset_percentage, distance_path, generator)
+    elif technique == "smds":
+        return StaticMiddleDistanceSampler(dataset_len, subset_percentage, distance_path, generator)
+    elif technique == "srbds":
+        return StaticRandomBalancedDistanceSampler(dataset_len, subset_percentage, distance_path, labels, generator)
 
 
 class SubsetSampler(ABC):
@@ -98,7 +110,7 @@ class MovingTargetDistanceSampler(SubsetSampler):
         self.ind = None
         self.distance_pref = 0.05
         self.dist_shift = 0.01
-        self.noise = 0.3
+        self.noise = 0.4
 
         self.avg_loss_decrease = None
         self.avg_loss_decrease_p = 0.9
@@ -170,7 +182,7 @@ class LinearTargetDistanceSampler(SubsetSampler):
         self.ind = None
         self.distance_pref = 0.15
         self.dist_shift = 0.02
-        self.noise = 0.2
+        self.noise = 0.4
 
         self.total_epochs = 400
         self.update_amount = (1-self.distance_pref)/self.total_epochs
@@ -218,4 +230,123 @@ class AccuracyDistanceSampler(SubsetSampler):
         self.distance_pref = feedback_accuracy / self.est_best_accuracy + self.noise / 4
         print("Distance pref: ", self.distance_pref)
 
+
+class StaticDistanceSampler(SubsetSampler):
+    def __init__(self, dataset_len, subset_percentage, distance_path="embeddings/cifar_10_trained/train.npy", generator=None):
+        super().__init__(dataset_len, subset_percentage, distance_path, generator)
+        self.loss_p=0.9
+        self.avg_loss = None
+        self.ind = None        
+        # argsort distances 
+        self.ind = torch.argsort(self.distances)
+        self.ind = self.ind[-self.subset_len:]
+
+    def get_indices(self):
+        return self.ind
+
+    # accuracy / loss per example
+    def feedback(self, feedback):
+        pass
+
+
+class StaticDistanceSampler(SubsetSampler):
+    def __init__(self, dataset_len, subset_percentage, distance_path="embeddings/cifar_10_trained/train.npy", generator=None):
+        super().__init__(dataset_len, subset_percentage, distance_path, generator)
+        self.loss_p=0.9
+        self.avg_loss = None
+        self.ind = None        
+        # argsort distances 
+        self.ind = torch.argsort(self.distances)
+        self.ind = self.ind[-self.subset_len:]
+
+    def get_indices(self):
+        return self.ind
+
+    # accuracy / loss per example
+    def feedback(self, feedback):
+        pass
+
+
+class StaticMiddleDistanceSampler(SubsetSampler):
+    def __init__(self, dataset_len, subset_percentage, distance_path="embeddings/cifar_10_trained/train.npy", generator=None):
+        super().__init__(dataset_len, subset_percentage, distance_path, generator)
+        self.loss_p=0.9
+        self.avg_loss = None
+        self.ind = None        
+        # argsort distances 
+        margin = int((1-self.subset_len)/2 * self.dataset_len)
+        self.ind = torch.argsort(self.distances)
+        self.ind = self.ind[margin:-margin] 
+
+    def get_indices(self):
+        return self.ind
+
+    # accuracy / loss per example
+    def feedback(self, feedback):
+        pass
+
+
+# should be smallest, oops!
+class LargestStaticDistanceSampler(SubsetSampler):
+    def __init__(self, dataset_len, subset_percentage, distance_path="embeddings/cifar_10_trained/train.npy", generator=None):
+        super().__init__(dataset_len, subset_percentage, distance_path, generator)
+        self.loss_p=0.9
+        self.avg_loss = None
+        self.ind = None        
+        # argsort distances 
+        self.ind = torch.argsort(self.distances)
+        self.ind = self.ind[:self.subset_len]
+
+    def get_indices(self):
+        return self.ind
+
+    # accuracy / loss per example
+    def feedback(self, feedback):
+        pass
+
+
+class StaticRandomDistanceSampler(SubsetSampler):
+    def __init__(self, dataset_len, subset_percentage, distance_path="embeddings/cifar_10_trained/train.npy", generator=None):
+        super().__init__(dataset_len, subset_percentage, distance_path, generator)
+        self.loss_p=0.9
+        self.avg_loss = None
+        self.ind = None        
+        # Random distance sampling
+        self.ind = torch.randperm(self.dataset_len, generator=self.generator)[:self.subset_len]
+
+    def get_indices(self):
+        return self.ind
+
+    # accuracy / loss per example
+    def feedback(self, feedback):
+        pass
+
+
+class StaticRandomBalancedDistanceSampler(SubsetSampler):
+    def __init__(self, dataset_len, subset_percentage, distance_path="embeddings/cifar_10_trained/train.npy", labels=None, generator=None):
+        super().__init__(dataset_len, subset_percentage, distance_path, generator)
+        self.loss_p=0.9
+        self.avg_loss = None
+        self.ind = None 
+        self.labels = labels
+
+        # get indices per class
+        self.data_idxs_per_class = []
+        for i in range(len(np.unique(self.labels))):
+            self.data_idxs_per_class.append(np.where(self.labels == i)[0])
+        self.data_idxs_per_class = np.array(self.data_idxs_per_class)
+
+        # randomly sample from each class 
+        self.ind = []
+        for data_idxs in self.data_idxs_per_class:
+            self.ind.append(torch.randperm(len(data_idxs), generator=self.generator)[:int(self.subset_len/len(np.unique(self.labels)))])
+        self.ind = torch.cat(self.ind)
+
+
+    def get_indices(self):
+        return self.ind
+
+    # accuracy / loss per example
+    def feedback(self, feedback):
+        pass
 

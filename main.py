@@ -55,7 +55,9 @@ class ExperimentRunner():
                                                 download=True, transform=transform_train)
         
         distance_path = args.distance_path + args.distance_technique + "_distances.npy"
-        self.sampler = get_sampler(technique=self.sample_technique, dataset_len=len(trainset), subset_percentage = args.k, distance_path=distance_path)
+        
+        train_labels = np.array(trainset.targets)
+        self.sampler = get_sampler(technique=self.sample_technique, dataset_len=len(trainset), subset_percentage = args.k, distance_path=distance_path, labels=train_labels)
         trainloader = torch.utils.data.DataLoader(trainset, batch_size=self.args.train_batch,
                                                   sampler=self.sampler, num_workers=2)  
         
@@ -140,6 +142,7 @@ class ExperimentRunner():
         # if int(epoch * self.args.k + 0.99) == int(epoch * self.args.k):
         #     self.scheduler.step()
         
+
         self.scheduler.step()
         
         self.sampler.feedback({"losses": losses, "corrects": corrects, "batch_size": self.args.train_batch})
@@ -182,18 +185,18 @@ class ExperimentRunner():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Resnet Finetuner")
-    parser.add_argument("--lr", default=0.1, type=float, help="learning rate")
-    parser.add_argument("--st", default="mtds", type=str, help="Sampling Technique", choices=SAMPLER_TECHNIQUES)
+    parser.add_argument("--lr", default=1e-2, type=float, help="learning rate")
+    parser.add_argument("--st", default="lsds", type=str, help="Sampling Technique", choices=SAMPLER_TECHNIQUES)
     parser.add_argument("--distance_path", default="embeddings/cifar_10_trained/", type=str, help="Path to distances npy file")
     parser.add_argument("--distance_technique", default="skmedoids_per_class", type=str, help="The cluster technique used")
     parser.add_argument("--gpu", default=0, type=int, help="gpu id")
-    parser.add_argument("--epochs", default=500, type=int, help="epochs")
+    parser.add_argument("--epochs", default=400, type=int, help="epochs")
     parser.add_argument("--momentum", default=0.9, type=float, help="momentum")
     parser.add_argument("--weight_decay", default=5e-4, type=float, help="weight_decay")
     parser.add_argument("--train_batch", default=128, type=int, help="train batch size")
     parser.add_argument("--test_batch", default=512, type=int, help="test batch size")
     parser.add_argument("--save_checkpoints", default=True, type=bool, help="save_checkpoints")
-    parser.add_argument("--k", default=0.2, type=float, help="subset percentage")
+    parser.add_argument("--k", default=0.9, type=float, help="subset percentage")
     args = parser.parse_args()    
     # torch.cuda.set_device(args.gpu)
     
