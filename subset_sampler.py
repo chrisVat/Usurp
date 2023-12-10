@@ -247,7 +247,7 @@ class TopKDistanceSampler(SubsetSampler):
         self.top_k = self.dataset_len // self.subset_len            # In every cluster, top k closest will be selected
 
     def get_indices(self):
-        return np.argsort(self.distances, axis=0)[:self.top_k, :].flatten()
+        return np.argsort(self.distances, axis=0)[:self.top_k].flatten()
 
     def feedback(self, feedback):
         pass
