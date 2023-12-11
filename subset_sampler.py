@@ -6,12 +6,15 @@ from sklearn.cluster import DBSCAN
 import torchvision
 from sklearn.cluster import AgglomerativeClustering
 import itertools
+import os
+from sklearn.cluster import KMeans
 from scipy.cluster.hierarchy import linkage, fcluster
+from sklearn.metrics import pairwise_distances_argmin_min
 # custom sampler passed to dataloader to get subset of dataset
 
 # https://pytorch.org/docs/stable/_modules/torch/utils/data/sampler.html#SequentialSampler
 
-SAMPLER_TECHNIQUES = ["random", "mtds", "mds", "ltds", "ads", "topk", "prob", "hisu", "ce"]
+SAMPLER_TECHNIQUES = ["random", "mtds", "mds", "ltds", "ads", "topk", "prob", "hisu", "ce", "sub"]
 __all__ = ["get_sampler", "SAMPLER_TECHNIQUES"]
 
 
@@ -39,6 +42,8 @@ def get_sampler(technique, dataset_len, subset_percentage, distance_path, genera
         return HierarchicalSubclusterSampler()
     elif technique.lower() == "ce":
         return ClusterEdgeSampler()
+    elif technique.lower() == "sub":
+        return KMeansSubclusterSampler()
 
 
 class SubsetSampler(ABC):
@@ -343,7 +348,7 @@ class HierarchicalSubclusterSampler():
         pass
 
 
-class ClusterEdgeSampler():
+class ClusterEdgeSampler:
     def __init__(self):
         self.distance_matrix = np.load("C:\\Users\\11597\\Desktop\\Usurp\\embeddings\\cifar_10_trained\\skmedoids_per_class_all_distances.npy")
         self.labels = np.load("C:\\Users\\11597\\Desktop\\Usurp\\embeddings\\cifar_10_trained\\skmedoids_per_class_labels.npy")
@@ -377,6 +382,64 @@ class ClusterEdgeSampler():
             edge_samples_indices.extend(selected_indices)
 
         return np.array(edge_samples_indices)
+
+    def __iter__(self):
+        for i_indice in self.indices:
+            yield i_indice
+
+    def __len__(self):
+        return len(self.indices)
+
+    def feedback(self, feedback):
+        pass
+
+
+class KMeansSubclusterSampler:
+    def __init__(self):
+        self.embeddings = np.load("C:\\Users\\11597\\Desktop\\Usurp\\embeddings\\cifar_10_trained\\train_embeddings.npy")
+        self.num_primary_clusters = 30      # Number of primary clusters.
+        self.num_subclusters = 10           # Number of subclusters within each primary cluster.
+        self.num_samples_per_subcluster = 30        # Number of samples to select from each subcluster.
+        self.indices = self.get_indices()
+
+    def get_indices(self):
+        # Primary clustering
+        primary_kmeans = KMeans(n_clusters=self.num_primary_clusters)
+        cluster_labels = primary_kmeans.fit_predict(self.embeddings)      # cluster and label them
+
+        subcluster_samples = []
+
+        for i_cluster in range(self.num_primary_clusters):
+            # Extract data for the primary cluster
+            cluster_data_indices = np.where(cluster_labels == i_cluster)[0]
+            cluster_data = self.embeddings[cluster_data_indices]
+
+            # Subclustering
+            if len(cluster_data) > self.num_subclusters:  # Check if subclustering is possible
+                sub_kmeans = KMeans(n_clusters=self.num_subclusters)
+                subcluster_labels = sub_kmeans.fit_predict(cluster_data)
+
+                # Select data from each subcluster
+                for j_subcluster in range(self.num_subclusters):
+                    subcluster_center = sub_kmeans.cluster_centers_[j_subcluster]
+                    subcluster_data_indices = cluster_data_indices[np.where(subcluster_labels == j_subcluster)[0]]
+                    subcluster_data = self.embeddings[subcluster_data_indices]
+
+                    # Calculate distances and find the closest points
+                    indices_closest, _ = pairwise_distances_argmin_min([subcluster_center], subcluster_data)
+                    closest_indices = subcluster_data_indices[indices_closest]
+
+                    # Randomly select samples from the subcluster
+                    if len(closest_indices) > self.num_samples_per_subcluster:
+                        selected_indices = np.random.choice(closest_indices, self.num_samples_per_subcluster, replace=False)
+                    else:
+                        selected_indices = closest_indices
+                    # Extend the selected data
+                    subcluster_samples.extend(selected_indices)
+
+        self.indices = np.array(subcluster_samples)
+
+        return self.indices
 
     def __iter__(self):
         for i_indice in self.indices:
