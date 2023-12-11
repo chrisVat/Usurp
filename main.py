@@ -32,7 +32,7 @@ class ExperimentRunner():
         self.current_epoch = 0
         self.save_checkpoints = args.save_checkpoints
         self.total_epochs = args.epochs
-        self.exp_name = f"{args.lr}_{args.momentum}_{args.weight_decay}_{args.train_batch}_{args.k}_{args.st}_{args.distance_technique}"
+        self.exp_name = f"{args.lr}_{args.momentum}_{args.weight_decay}_{args.train_batch}_{args.k}_{args.st}_{args.distance_technique}_{args.distance_path.split('/')[-2] }"
         self.writer = SummaryWriter("logs/" + self.exp_name + "/")
         self.train_loader, self.test_loader = self.load_data()
 
@@ -186,8 +186,8 @@ class ExperimentRunner():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Resnet Finetuner")
     parser.add_argument("--lr", default=1e-2, type=float, help="learning rate")
-    parser.add_argument("--st", default="lsds", type=str, help="Sampling Technique", choices=SAMPLER_TECHNIQUES)
-    parser.add_argument("--distance_path", default="embeddings/cifar_10_trained/", type=str, help="Path to distances npy file")
+    parser.add_argument("--st", default="bsmds", type=str, help="Sampling Technique", choices=SAMPLER_TECHNIQUES)
+    parser.add_argument("--distance_path", default="embeddings/cifar_10_trained/", type=str, help="Path to distances npy file") # _from_100/
     parser.add_argument("--distance_technique", default="skmedoids_per_class", type=str, help="The cluster technique used")
     parser.add_argument("--gpu", default=0, type=int, help="gpu id")
     parser.add_argument("--epochs", default=400, type=int, help="epochs")
@@ -196,7 +196,7 @@ if __name__ == "__main__":
     parser.add_argument("--train_batch", default=128, type=int, help="train batch size")
     parser.add_argument("--test_batch", default=512, type=int, help="test batch size")
     parser.add_argument("--save_checkpoints", default=True, type=bool, help="save_checkpoints")
-    parser.add_argument("--k", default=0.9, type=float, help="subset percentage")
+    parser.add_argument("--k", default=.1, type=float, help="subset percentage")
     args = parser.parse_args()    
     # torch.cuda.set_device(args.gpu)
     

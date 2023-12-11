@@ -13,7 +13,7 @@ DISTANCE_TECHNIQUES = ["fasterpam", "clarans", "kmedoids", "skmedoids"]
 __all__ = ["get_distance_calculator", "TECHNIQUES"]
 
 def get_distance_calculator(technique, embedding_path, num_labels, use_reduced_for_medoids=True, use_reduced_for_dist=True):
-    assert technique in DISTANCE_TECHNIQUES, f"Technique {technique} not supported. Choose from {TECHNIQUES}"
+    assert technique in DISTANCE_TECHNIQUES, f"Technique {technique} not supported. Choose from {DISTANCE_TECHNIQUES}"
     if technique == "fasterpam":
         return FasterPam(embedding_path, num_labels, use_reduced_for_medoids, use_reduced_for_dist)
     elif technique == "clarans":
@@ -160,6 +160,7 @@ class SKmedoids(Distance):
     def _get_medoids(self, data_idxs):
         embeddings = self.get_embeddings_for_medoids()[data_idxs]
         num_clusters = int(self.num_labels*self.num_clusters_per_class * (len(data_idxs) / len(self.reduced_embeddings)))
+        num_clusters = 10
         kmedoids = KMedoids(n_clusters=num_clusters, random_state=0).fit(embeddings)
         return kmedoids.medoid_indices_
 

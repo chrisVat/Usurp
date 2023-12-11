@@ -4,6 +4,7 @@ import torch
 from distances import get_distance_calculator, DISTANCE_TECHNIQUES
 import argparse
 import random
+import os
 
 random.seed(42)
 np.random.seed(42)
@@ -45,8 +46,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Distance Calculation")
     parser.add_argument("--technique", default="skmedoids", type=str, help="Clustering Technique")
     parser.add_argument("--per_class", default=True, type=bool, help="Cluster per class", choices=DISTANCE_TECHNIQUES)
-    parser.add_argument("--embedding_path", default="embeddings/cifar_10_trained/train.npy", type=str, help="path to embeddings .npy file")
-    parser.add_argument("--save_dir", default="embeddings/cifar_10_trained/", type=str, help="path to save medoids .npy file")
+    parser.add_argument("--embedding_path", default="embeddings/cifar_10_trained/train.npy", type=str, help="path to embeddings .npy file") # _from_100
+    parser.add_argument("--save_dir", default="embeddings/cifar_10_trained/", type=str, help="path to save medoids .npy file") # _from_100
     parser.add_argument("--use_reduced_for_medoids", default=True, type=bool, help="Use PCA for medoid calculation")
     parser.add_argument("--use_reduced_for_dist", default=True, type=bool, help="Use PCA for distance calculation")
     args = parser.parse_args()   
