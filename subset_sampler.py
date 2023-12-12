@@ -7,6 +7,8 @@ import torchvision
 from sklearn.cluster import AgglomerativeClustering
 import itertools
 import os
+import numpy as np
+from sklearn.neighbors import KernelDensity
 from sklearn.cluster import KMeans
 from scipy.cluster.hierarchy import linkage, fcluster
 from sklearn.metrics import pairwise_distances_argmin_min
@@ -14,7 +16,7 @@ from sklearn.metrics import pairwise_distances_argmin_min
 
 # https://pytorch.org/docs/stable/_modules/torch/utils/data/sampler.html#SequentialSampler
 
-SAMPLER_TECHNIQUES = ["random", "mtds", "mds", "ltds", "ads", "topk", "prob", "hisu", "ce", "sub"]
+SAMPLER_TECHNIQUES = ["random", "mtds", "mds", "ltds", "ads", "topk", "prob", "hisu", "ce", "sub", "den"]
 __all__ = ["get_sampler", "SAMPLER_TECHNIQUES"]
 
 
@@ -41,9 +43,11 @@ def get_sampler(technique, dataset_len, subset_percentage, distance_path, genera
     elif technique.lower() == "hisu":
         return HierarchicalSubclusterSampler()
     elif technique.lower() == "ce":
-        return ClusterEdgeSampler()
+        return ClusterEdgeSampler(subset_percentage)
     elif technique.lower() == "sub":
         return KMeansSubclusterSampler()
+    elif technique.lower() == "den":
+        return DensitySampler()
 
 
 class SubsetSampler(ABC):
@@ -349,18 +353,16 @@ class HierarchicalSubclusterSampler():
 
 
 class ClusterEdgeSampler:
-    def __init__(self):
+    def __init__(self, subset_percentage=0.2):
+        self.subset_percentage = subset_percentage
         self.distance_matrix = np.load("C:\\Users\\11597\\Desktop\\Usurp\\embeddings\\cifar_10_trained\\skmedoids_per_class_all_distances.npy")
         self.labels = np.load("C:\\Users\\11597\\Desktop\\Usurp\\embeddings\\cifar_10_trained\\skmedoids_per_class_labels.npy")
         self.indices = self.get_indices()
-        print(self.indices.shape)
-        print(self.indices[0: 5])
 
     # Select data points that are near the edge of a cluster's radius
-    def get_indices(self, num_samples_per_cluster=100, edge_percentage=0.1):
+    def get_indices(self, edge_percentage=0.1):
         """
         :param distance_matrix: A 2D numpy array where rows are data points and columns are distances to each cluster's medoid.
-        :param num_samples_per_cluster: Number of samples to select per cluster.
         :param edge_percentage: Percentage to define the edge of the clusters.
         :return: the indices to select
         """
@@ -373,8 +375,8 @@ class ClusterEdgeSampler:
             edge_indices = np.where(distances >= edge_threshold)[0]     # Find indices of data points near the edge of the cluster
 
             # If there are more edge points than required samples, select randomly
-            if len(edge_indices) > num_samples_per_cluster:
-                selected_indices = np.random.choice(edge_indices, num_samples_per_cluster, replace=False)
+            if len(edge_indices) > int(self.subset_percentage * len(distances)):
+                selected_indices = np.random.choice(edge_indices, int(self.subset_percentage * len(distances)), replace=False)
             else:
                 selected_indices = edge_indices
 
@@ -450,3 +452,33 @@ class KMeansSubclusterSampler:
 
     def feedback(self, feedback):
         pass
+
+
+class DensitySampler:
+    def __init__(self):
+        self.embeddings = np.load("C:\\Users\\11597\\Desktop\\Usurp\\embeddings\\cifar_10_trained\\train_embeddings.npy")
+        self.indices = self.get_indice()
+
+    def get_indice(self):
+        # Density estimation using Kernel Density Estimation (KDE)
+        kde = KernelDensity(kernel='gaussian', bandwidth=0.5).fit(self.embeddings)
+        log_densities = kde.score_samples(self.embeddings)
+        densities = np.exp(log_densities)  # converting log densities to actual densities
+
+        # Selecting samples based on density
+        density_threshold = np.percentile(densities, 70)        # top 30% dense points
+        selected_indices = np.where(densities > density_threshold)[0]       # Indices of high density samples
+
+        return selected_indices
+
+    def __iter__(self):
+        for i_indice in self.indices:
+            yield i_indice
+
+    def __len__(self):
+        return len(self.indices)
+
+    def feedback(self, feedback):
+        pass
+
+
