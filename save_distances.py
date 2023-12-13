@@ -12,7 +12,6 @@ torch.cuda.manual_seed(42)
 torch.backends.cudnn.deterministic = True
 
 
-
 def main(args):
     cifar_data = torchvision.datasets.CIFAR10(root='./data', train=True, download=True)
     labels = np.array(cifar_data.targets)
@@ -36,16 +35,28 @@ def main(args):
     technique_name = args.technique + "_per_class" if args.per_class else args.technique
 
     np.save(args.save_dir + technique_name + "_medoids.npy", medoids)
+
+    # Save distance
     distances = dist_calc.get_distances_with_medoids(medoids)
-    print("Distances: ", distances)
+    print(f"Distances Shape: {distances.shape}")
     np.save(args.save_dir + technique_name + "_distances.npy", distances)
+
+    # Save distance to all medoids
+    distances = dist_calc.get_distances_to_all_medoids(medoids)
+    print(f"Distances Shape: {distances.shape}")
+    np.save(args.save_dir + technique_name + "_all_distances.npy", distances)
+
+    # Save labels of every data points
+    labels = dist_calc.get_labels(medoids)
+    print(f"Label Shape: {labels.shape}")
+    np.save(args.save_dir + technique_name + "_labels.npy", labels)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Distance Calculation")
     parser.add_argument("--technique", default="skmedoids", type=str, help="Clustering Technique")
     parser.add_argument("--per_class", default=True, type=bool, help="Cluster per class", choices=DISTANCE_TECHNIQUES)
-    parser.add_argument("--embedding_path", default="embeddings/cifar_10_trained/train.npy", type=str, help="path to embeddings .npy file")
+    parser.add_argument("--embedding_path", default="embeddings/cifar_10_trained/train_embeddings.npy", type=str, help="path to embeddings .npy file")
     parser.add_argument("--save_dir", default="embeddings/cifar_10_trained/", type=str, help="path to save medoids .npy file")
     parser.add_argument("--use_reduced_for_medoids", default=True, type=bool, help="Use PCA for medoid calculation")
     parser.add_argument("--use_reduced_for_dist", default=True, type=bool, help="Use PCA for distance calculation")

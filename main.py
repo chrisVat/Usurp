@@ -9,7 +9,7 @@ from subset_sampler import get_sampler, SAMPLER_TECHNIQUES
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
 import random 
-import np as np
+import numpy as np
 
 random.seed(42)
 torch.manual_seed(42)
