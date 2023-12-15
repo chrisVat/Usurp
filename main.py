@@ -186,8 +186,8 @@ class ExperimentRunner():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Resnet Finetuner")
     parser.add_argument("--lr", default=1e-2, type=float, help="learning rate")
-    parser.add_argument("--st", default="bsmds", type=str, help="Sampling Technique", choices=SAMPLER_TECHNIQUES)
-    parser.add_argument("--distance_path", default="embeddings/cifar_10_trained/", type=str, help="Path to distances npy file") # _from_100/
+    parser.add_argument("--st", default="forget_small", type=str, help="Sampling Technique", choices=SAMPLER_TECHNIQUES)
+    parser.add_argument("--distance_path", default="embeddings/cifar_10_trained_from_100/", type=str, help="Path to distances npy file") # _from_100/
     parser.add_argument("--distance_technique", default="skmedoids_per_class", type=str, help="The cluster technique used")
     parser.add_argument("--gpu", default=0, type=int, help="gpu id")
     parser.add_argument("--epochs", default=400, type=int, help="epochs")
@@ -196,7 +196,7 @@ if __name__ == "__main__":
     parser.add_argument("--train_batch", default=128, type=int, help="train batch size")
     parser.add_argument("--test_batch", default=512, type=int, help="test batch size")
     parser.add_argument("--save_checkpoints", default=True, type=bool, help="save_checkpoints")
-    parser.add_argument("--k", default=.1, type=float, help="subset percentage")
+    parser.add_argument("--k", default=0.25, type=float, help="subset percentage")
     args = parser.parse_args()    
     # torch.cuda.set_device(args.gpu)
     

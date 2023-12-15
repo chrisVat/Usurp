@@ -1,5 +1,6 @@
 # abstract class
 from abc import ABC, abstractmethod
+from sklearn.neighbors import KernelDensity
 import torch
 import numpy as np
 import random
@@ -7,12 +8,12 @@ import random
 
 # https://pytorch.org/docs/stable/_modules/torch/utils/data/sampler.html#SequentialSampler
 
-SAMPLER_TECHNIQUES = ["random", "mtds", "mds", "ltds", "ads", "sds", "srds", "lsds", "smds", "srbds", "bsmds", "bsds", "blsds"]
+SAMPLER_TECHNIQUES = ["random", "mtds", "mds", "ltds", "ads", "sds", "srds", "lsds", "smds", "srbds", "bsmds", "bsds", "blsds", "bbsds", "busds", "bdps", "den", "dens", "bues", "forget", "forget_small", "forget_easy"]
 __all__ = ["get_sampler", "SAMPLER_TECHNIQUES"]
 
 
 def get_sampler(technique, dataset_len, subset_percentage, distance_path, labels, generator=None):
-    assert technique in SAMPLER_TECHNIQUES, f"Technique {technique} not supported. Choose from {SAMPLER_TECHNIQUES}"
+    # assert technique in SAMPLER_TECHNIQUES, f"Technique {technique} not supported. Choose from {SAMPLER_TECHNIQUES}"
     if technique == "random":
         return RandomSampler(dataset_len, subset_percentage, distance_path, generator)
     elif technique == "mtds":
@@ -35,12 +36,37 @@ def get_sampler(technique, dataset_len, subset_percentage, distance_path, labels
         return StaticMiddleDistanceSampler(dataset_len, subset_percentage, distance_path, generator)
     elif technique == "srbds":
         return StaticRandomBalancedDistanceSampler(dataset_len, subset_percentage, distance_path, labels, generator)
-    elif technique == "bsmds":
-        return BalancedStaticMiddleDistanceSampler(dataset_len, subset_percentage, distance_path, labels, generator)
+    elif technique.startswith("bsmds"):
+        percentage=float(technique.split("_")[1])
+        if len(technique.split("_")) > 1:
+            percentage=float(technique.split("_")[1])
+        return BalancedPercentileSampler(dataset_len, subset_percentage, distance_path, labels, percentage, generator)
     elif technique == "bsds":
         return BalancedStaticDistanceSampler(dataset_len, subset_percentage, distance_path, labels, generator)
     elif technique == "blsds":
         return BalancedLargestStaticDistanceSampler(dataset_len, subset_percentage, distance_path, labels, generator)
+    elif technique == "bbsds":
+        return BalancedBiasSampler(dataset_len, subset_percentage, distance_path, labels, generator)
+    elif technique == "busds":
+        return BalancedUniformSampler(dataset_len, subset_percentage, distance_path, labels, generator)
+    elif technique.startswith("bdps"):
+        percentage1=float(technique.split("_")[1])
+        percentage2=float(technique.split("_")[2])
+        return BalancedDoublePercentileSampler(dataset_len, subset_percentage, distance_path, labels, percentage1, percentage2, generator)
+    elif technique.lower() == "den":
+        return DensitySampler(dataset_len, subset_percentage, distance_path, generator)
+    elif technique.lower() == "dens":
+        return DensitySamplerNoShuffle(dataset_len, subset_percentage, distance_path, generator)
+    elif technique.lower() == "bues":
+        return BalancedUniformEvenSampler(dataset_len, subset_percentage, distance_path, labels, generator)
+    elif technique.lower() == "forget":
+        return ForgettingScore(dataset_len, subset_percentage, distance_path, generator)
+    elif technique.lower() == "forget_small":
+        return ForgettingSmallScore(dataset_len, subset_percentage, distance_path, generator)
+    elif technique.lower() == "forget_easy":
+        return ForgettingEasyScore(dataset_len, subset_percentage, distance_path, generator)
+    else:
+        raise Exception("Sampler technique not supported")
 
 
 class SubsetSampler(ABC):
@@ -277,9 +303,103 @@ class StaticMiddleDistanceSampler(SubsetSampler):
     def feedback(self, feedback):
         random.shuffle(self.ind)
 
+class BalancedPercentileSampler(SubsetSampler):
+    def __init__(self, dataset_len, subset_percentage, distance_path="embeddings/cifar_10_trained/train.npy", labels=None, percent=0.5, generator=None):
+        super().__init__(dataset_len, subset_percentage, distance_path, generator)
+        self.loss_p=0.9
+        self.avg_loss = None
+        self.ind = None     
+        self.original_labels = labels
 
-class BalancedStaticMiddleDistanceSampler(SubsetSampler):
-    def __init__(self, dataset_len, subset_percentage, distance_path="embeddings/cifar_10_trained/train.npy", labels=None, generator=None):
+        self.percentage = percent
+
+        self.data_idxs_per_class = []
+        for i in range(len(np.unique(self.original_labels))):
+            self.data_idxs_per_class.append(np.where(self.original_labels == i)[0])
+        self.data_idxs_per_class = np.array(self.data_idxs_per_class)
+
+        amount_per_class = int(self.subset_len/len(np.unique(self.original_labels)))
+        print("Amount per class: ", amount_per_class)
+        print("Subset percentage", self.subset_percentage)
+        print("Dataset len", self.dataset_len)
+        print("Subset len", self.subset_len)
+        print("Unique labels", len(np.unique(self.original_labels)))
+
+
+        self.ind = []
+        for data_idxs in self.data_idxs_per_class:
+            related_dists = self.distances[data_idxs]
+            sorted_dists = torch.argsort(related_dists)
+            middle = int(len(sorted_dists) * self.percentage)
+            desired_idxs = list(sorted_dists[int(middle-amount_per_class/2):int(middle+amount_per_class/2)])
+            for idx in desired_idxs:
+                self.ind.append(data_idxs[idx])
+
+        counts_per_class = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        for idx in self.ind:
+            counts_per_class[self.original_labels[idx]] += 1
+        # print("Counts per class", counts_per_class)
+        random.shuffle(self.ind)
+
+    def get_indices(self):
+        return self.ind
+
+    # accuracy / loss per example
+    def feedback(self, feedback):
+        random.shuffle(self.ind)
+
+
+class BalancedDoublePercentileSampler(SubsetSampler):
+    def __init__(self, dataset_len, subset_percentage, distance_path="embeddings/cifar_10_trained/train.npy", labels=None, percent1=0.3, percent2=0.7, generator=None):
+        super().__init__(dataset_len, subset_percentage, distance_path, generator)
+        self.loss_p=0.9
+        self.avg_loss = None
+        self.ind = None     
+        self.original_labels = labels
+
+        self.percentage1 = percent1
+        self.percentage2 = percent2
+        self.percentages = [self.percentage1, self.percentage2]
+
+        self.data_idxs_per_class = []
+        for i in range(len(np.unique(self.original_labels))):
+            self.data_idxs_per_class.append(np.where(self.original_labels == i)[0])
+        self.data_idxs_per_class = np.array(self.data_idxs_per_class)
+
+        amount_per_class = int(self.subset_len/len(np.unique(self.original_labels)))
+        print("Amount per class: ", amount_per_class)
+        print("Subset percentage", self.subset_percentage)
+        print("Dataset len", self.dataset_len)
+        print("Subset len", self.subset_len)
+        print("Unique labels", len(np.unique(self.original_labels)))
+
+
+        self.ind = []
+        for data_idxs in self.data_idxs_per_class:
+            related_dists = self.distances[data_idxs]
+            sorted_dists = torch.argsort(related_dists)
+            for percentage in self.percentages:
+                middle = int(len(sorted_dists) * percentage)
+                desired_idxs = list(sorted_dists[int(middle-amount_per_class/4):int(middle+amount_per_class/4)])
+                for idx in desired_idxs:
+                    self.ind.append(data_idxs[idx])
+
+        counts_per_class = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        for idx in self.ind:
+            counts_per_class[self.original_labels[idx]] += 1
+        # print("Counts per class", counts_per_class)
+        random.shuffle(self.ind)
+
+    def get_indices(self):
+        return self.ind
+
+    # accuracy / loss per example
+    def feedback(self, feedback):
+        random.shuffle(self.ind)
+
+
+class BalancedUniformSampler(SubsetSampler):
+    def __init__(self, dataset_len, subset_percentage, distance_path="embeddings/cifar_10_trained/train.npy", labels=None, percent=0.5, generator=None):
         super().__init__(dataset_len, subset_percentage, distance_path, generator)
         self.loss_p=0.9
         self.avg_loss = None
@@ -303,8 +423,12 @@ class BalancedStaticMiddleDistanceSampler(SubsetSampler):
         for data_idxs in self.data_idxs_per_class:
             related_dists = self.distances[data_idxs]
             sorted_dists = torch.argsort(related_dists)
-            middle = int(len(sorted_dists)/2)
-            desired_idxs = list(sorted_dists[int(middle-amount_per_class/2):int(middle+amount_per_class/2)])
+            desired_idxs = []
+            # uniformly sample from the sorted distances
+            while len(desired_idxs) < amount_per_class:
+                rand_idx = random.randint(0, len(sorted_dists)-1)
+                if rand_idx not in desired_idxs:
+                    desired_idxs.append(rand_idx)
             for idx in desired_idxs:
                 self.ind.append(data_idxs[idx])
 
@@ -320,6 +444,109 @@ class BalancedStaticMiddleDistanceSampler(SubsetSampler):
     # accuracy / loss per example
     def feedback(self, feedback):
         random.shuffle(self.ind)
+
+
+class BalancedUniformEvenSampler(SubsetSampler):
+    def __init__(self, dataset_len, subset_percentage, distance_path="embeddings/cifar_10_trained/train.npy", labels=None, percent=0.5, generator=None):
+        super().__init__(dataset_len, subset_percentage, distance_path, generator)
+        self.loss_p=0.9
+        self.avg_loss = None
+        self.ind = None     
+        self.original_labels = labels
+
+        self.data_idxs_per_class = []
+        for i in range(len(np.unique(self.original_labels))):
+            self.data_idxs_per_class.append(np.where(self.original_labels == i)[0])
+        self.data_idxs_per_class = np.array(self.data_idxs_per_class)
+
+        amount_per_class = int(self.subset_len/len(np.unique(self.original_labels)))
+        print("Amount per class: ", amount_per_class)
+        print("Subset percentage", self.subset_percentage)
+        print("Dataset len", self.dataset_len)
+        print("Subset len", self.subset_len)
+        print("Unique labels", len(np.unique(self.original_labels)))
+
+
+        self.ind = []
+        for data_idxs in self.data_idxs_per_class:
+            related_dists = self.distances[data_idxs]
+            sorted_dists = torch.argsort(related_dists)
+            desired_idxs = []
+            # uniformly sample from the sorted distances
+            n = len(sorted_dists) / amount_per_class
+            for i in range(amount_per_class):
+                if int(i*n) not in desired_idxs:
+                    desired_idxs.append(int(i*n))
+            while len(desired_idxs) < amount_per_class:
+                # normal distribution
+                rand_idx = int(np.random.normal(0.5, 0.25) * len(sorted_dists))
+                if rand_idx not in desired_idxs and rand_idx >= 0 and rand_idx < len(sorted_dists):
+                    desired_idxs.append(rand_idx) 
+            for idx in desired_idxs:
+                self.ind.append(data_idxs[idx])
+
+        counts_per_class = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        for idx in self.ind:
+            counts_per_class[self.original_labels[idx]] += 1
+        # print("Counts per class", counts_per_class)
+        random.shuffle(self.ind)
+
+    def get_indices(self):
+        return self.ind
+
+    # accuracy / loss per example
+    def feedback(self, feedback):
+        random.shuffle(self.ind)
+
+class BalancedBiasSampler(SubsetSampler):
+    def __init__(self, dataset_len, subset_percentage, distance_path="embeddings/cifar_10_trained/train.npy", labels=None, percent=0.5, generator=None):
+        super().__init__(dataset_len, subset_percentage, distance_path, generator)
+        self.loss_p=0.9
+        self.avg_loss = None
+        self.ind = None     
+        self.original_labels = labels
+
+        self.data_idxs_per_class = []
+        for i in range(len(np.unique(self.original_labels))):
+            self.data_idxs_per_class.append(np.where(self.original_labels == i)[0])
+        self.data_idxs_per_class = np.array(self.data_idxs_per_class)
+
+        amount_per_class = int(self.subset_len/len(np.unique(self.original_labels)))
+        print("Amount per class: ", amount_per_class)
+        print("Subset percentage", self.subset_percentage)
+        print("Dataset len", self.dataset_len)
+        print("Subset len", self.subset_len)
+        print("Unique labels", len(np.unique(self.original_labels)))
+
+
+        self.ind = []
+        for data_idxs in self.data_idxs_per_class:
+            related_dists = self.distances[data_idxs]
+            sorted_dists = torch.argsort(related_dists)
+            desired_idxs = []
+            # normal sample with median at 0.33 from the sorted distances
+            while len(desired_idxs) < amount_per_class:
+                rand_idx = int(np.random.normal(0.33, 0.5) * len(sorted_dists))
+                if rand_idx < 0 or rand_idx >= len(sorted_dists):
+                    continue
+                if rand_idx not in desired_idxs:
+                    desired_idxs.append(rand_idx)
+            for idx in desired_idxs:
+                self.ind.append(data_idxs[idx])
+
+        counts_per_class = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        for idx in self.ind:
+            counts_per_class[self.original_labels[idx]] += 1
+        # print("Counts per class", counts_per_class)
+        random.shuffle(self.ind)
+
+    def get_indices(self):
+        return self.ind
+
+    # accuracy / loss per example
+    def feedback(self, feedback):
+        random.shuffle(self.ind)
+
 
 class StaticDistanceSampler(SubsetSampler):
     def __init__(self, dataset_len, subset_percentage, distance_path="embeddings/cifar_10_trained/train.npy", generator=None):
@@ -429,11 +656,13 @@ class StaticRandomDistanceSampler(SubsetSampler):
         self.avg_loss = None
         self.ind = None        
         # Random distance sampling
-        self.ind = torch.randperm(self.dataset_len, generator=self.generator)[:self.subset_len]
+        self.ind = torch.randperm(self.dataset_len)[:self.subset_len]
+        self.ind = self.ind.tolist()
         random.shuffle(self.ind)
 
     def get_indices(self):
         return self.ind
+    
 
     # accuracy / loss per example
     def feedback(self, feedback):
@@ -462,6 +691,21 @@ class StaticRandomBalancedDistanceSampler(SubsetSampler):
         random.shuffle(self.ind)
 
 
+        amount_per_class = int(self.subset_len/len(np.unique(self.original_labels)))
+        self.ind = []
+        for data_idxs in self.data_idxs_per_class:
+            selections = torch.randperm(len(data_idxs))[:amount_per_class]
+            for selection in selections:
+                self.ind.append(data_idxs[selection])
+    
+        counts_per_class = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        for idx in self.ind:
+            counts_per_class[self.original_labels[idx]] += 1
+        print("Counts per class", counts_per_class)
+        self.ind = self.ind.tolist()
+        random.shuffle(self.ind)
+
+
     def get_indices(self):
         return self.ind
 
@@ -469,3 +713,92 @@ class StaticRandomBalancedDistanceSampler(SubsetSampler):
     def feedback(self, feedback):
         random.shuffle(self.ind)
 
+
+class DensitySampler(SubsetSampler):
+    def __init__(self, dataset_len, subset_percentage, distance_path="embeddings/cifar_10_trained/train.npy", generator=None):
+        super().__init__(dataset_len, subset_percentage, distance_path, generator)
+        self.densities = np.load("embeddings\\cifar_10_trained\\densities.npy")
+        density_threshold = np.percentile(self.densities, (1 - self.subset_percentage)*100)        
+        self.ind = np.where(self.densities > density_threshold)[0]       # Indices of high density samples
+
+    def get_indices(self):
+        return self.ind
+
+    def feedback(self, feedback):
+        random.shuffle(self.ind)
+
+
+class DensitySamplerNoShuffle(SubsetSampler):
+    def __init__(self, dataset_len, subset_percentage, distance_path="embeddings/cifar_10_trained/train.npy", generator=None):
+        super().__init__(dataset_len, subset_percentage, distance_path, generator)
+        self.densities = np.load("embeddings\\cifar_10_trained\\densities.npy")
+        density_threshold = np.percentile(self.densities, (1 - self.subset_percentage)*100)        
+        self.ind = np.where(self.densities > density_threshold)[0]       # Indices of high density samples
+
+    def get_indices(self):
+        return self.ind
+
+    def feedback(self, feedback):
+        pass
+
+class ForgettingScore(SubsetSampler):
+    def __init__(self, dataset_len, subset_percentage, distance_path="embeddings/cifar_10_trained/train.npy", generator=None):
+        super().__init__(dataset_len, subset_percentage, distance_path, generator)
+        forgetting_path = "forgetting/c10_forgetting_indices.npy"
+        self.forgetting_indices = np.load(forgetting_path)
+        self.ind = self.forgetting_indices[-int(self.subset_len):]
+    
+    def get_indices(self):
+        return self.ind
+    
+    def feedback(self, feedback):
+        random.shuffle(self.ind)
+
+
+class ForgettingSmallScore(SubsetSampler):
+    def __init__(self, dataset_len, subset_percentage, distance_path="embeddings/cifar_10_trained/train.npy", generator=None):
+        super().__init__(dataset_len, subset_percentage, distance_path, generator)
+        forgetting_path = "forgetting/c10_forgetting_indices.npy"
+        self.first_nonzero = 23841 
+        self.forgetting_indices = np.load(forgetting_path)
+        self.ind = []
+        if self.subset_len >= self.first_nonzero:
+            self.ind = self.forgetting_indices[:self.subset_len]
+        else: 
+            possible_indices = [i for i in range(self.first_nonzero)]
+            while len(self.ind) < self.subset_len:
+                rand_idx = random.randint(0, len(possible_indices)-1)
+                self.ind.append(possible_indices[rand_idx])
+                possible_indices.pop(rand_idx)
+    
+    def get_indices(self):
+        return self.ind
+    
+    def feedback(self, feedback):
+        random.shuffle(self.ind)
+
+
+class ForgettingEasyScore(SubsetSampler):
+    def __init__(self, dataset_len, subset_percentage, distance_path="embeddings/cifar_10_trained/train.npy", generator=None):
+        super().__init__(dataset_len, subset_percentage, distance_path, generator)
+        print("This ran.")
+        forgetting_path = "forgetting/c10_forgetting_indices.npy"
+        self.first_nonzero = 23841 
+        self.forgetting_indices = np.load(forgetting_path)
+        total_scores = len(self.forgetting_indices)
+        self.ind = self.forgetting_indices[self.first_nonzero:min(self.first_nonzero + self.subset_len, total_scores-1)]
+        self.ind = self.ind.tolist()
+        print("Subset len", self.subset_len)
+        print("Added: ", len(self.ind))
+        remaining = [i for i in range(self.first_nonzero)]
+        while len(self.ind) < self.subset_len:
+            # select and remove element from remaining
+            rand_idx = random.randint(0, len(remaining)-1)
+            self.ind.append(remaining[rand_idx])
+            remaining.pop(rand_idx) 
+    
+    def get_indices(self):
+        return self.ind
+    
+    def feedback(self, feedback):
+        random.shuffle(self.ind)
