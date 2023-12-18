@@ -11,11 +11,19 @@ torch.manual_seed(42)
 torch.cuda.manual_seed(42)
 torch.backends.cudnn.deterministic = True
 
-
+DATASETS = ["CIFAR10", "GTZAN", "SpeechCommands"]
 
 def main(args):
-    cifar_data = torchvision.datasets.CIFAR10(root='./data', train=True, download=True)
-    labels = np.array(cifar_data.targets)
+    if args.dtst=="CIFAR10":
+        cifar_data = torchvision.datasets.CIFAR10(root='./data', train=True, download=True)
+        labels = np.array(cifar_data.targets)
+        
+    elif args.dtst=="GTZAN":
+        labels = np.load('GTZAN_training_labels.npy')
+        
+    elif args.dtst=="SpeechCommands":
+        labels = np.load('CLAR_training_labels.npy')
+        
     num_unique_labels = len(np.unique(labels)) 
 
     dist_calc = get_distance_calculator(args.technique, args.embedding_path, num_unique_labels, \
@@ -43,6 +51,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Distance Calculation")
+    parser.add_argument("--dtst", default="CIFAR10", type=str, help="Dataset", choices=DATASETS)
     parser.add_argument("--technique", default="skmedoids", type=str, help="Clustering Technique")
     parser.add_argument("--per_class", default=True, type=bool, help="Cluster per class", choices=DISTANCE_TECHNIQUES)
     parser.add_argument("--embedding_path", default="embeddings/cifar_10_trained/train.npy", type=str, help="path to embeddings .npy file")

@@ -9,7 +9,7 @@ from subset_sampler import get_sampler, SAMPLER_TECHNIQUES
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
 import random 
-import np as np
+import numpy as np
 
 random.seed(42)
 torch.manual_seed(42)
@@ -17,6 +17,7 @@ torch.cuda.manual_seed(42)
 np.random.seed(42)
 torch.backends.cudnn.deterministic = True
 
+DATASETS = ["CIFAR10", "GTZAN", "SpeechCommands"]
 
 class ExperimentRunner():
     def __init__(self, args):
@@ -32,42 +33,113 @@ class ExperimentRunner():
         self.current_epoch = 0
         self.save_checkpoints = args.save_checkpoints
         self.total_epochs = args.epochs
-        self.exp_name = f"{args.lr}_{args.momentum}_{args.weight_decay}_{args.train_batch}_{args.k}_{args.st}_{args.distance_technique}"
+        self.exp_name = f"{args.dtst}_{args.lr}_{args.momentum}_{args.weight_decay}_{args.train_batch}_{args.k}_{args.st}_{args.distance_technique}_{args.distance_path.split('/')[-2] }"
         self.writer = SummaryWriter("logs/" + self.exp_name + "/")
         self.train_loader, self.test_loader = self.load_data()
 
 
     def load_data(self):
-        # load cifar10
-        transform_train = transforms.Compose([
-            transforms.RandomCrop(32, padding=4),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize((0.4914, 0.4822, 0.4465),
-                                 (0.2023, 0.1994, 0.2010)),
-        ])
-        transform_test = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize((0.4914, 0.4822, 0.4465),
-                                 (0.2023, 0.1994, 0.2010)),
-        ])
-        trainset = torchvision.datasets.CIFAR10(root='./data', train=True,
-                                                download=True, transform=transform_train)
+
+        if args.dtst=="CIFAR10":      
+            # load cifar10
+            transform_train = transforms.Compose([
+                transforms.RandomCrop(32, padding=4),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize((0.4914, 0.4822, 0.4465),
+                                     (0.2023, 0.1994, 0.2010)),
+            ])
+            transform_test = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize((0.4914, 0.4822, 0.4465),
+                                     (0.2023, 0.1994, 0.2010)),
+            ])
+            trainset = torchvision.datasets.CIFAR10(root='./data', train=True,
+                                                    download=True, transform=transform_train)
         
-        distance_path = args.distance_path + args.distance_technique + "_distances.npy"
-        self.sampler = get_sampler(technique=self.sample_technique, dataset_len=len(trainset), subset_percentage = args.k, distance_path=distance_path)
-        trainloader = torch.utils.data.DataLoader(trainset, batch_size=self.args.train_batch,
+            distance_path = args.distance_path + args.distance_technique + "_distances.npy"
+        
+            train_labels = np.array(trainset.targets)
+            self.sampler = get_sampler(technique=self.sample_technique, dataset_len=len(trainset), 
+                                                      subset_percentage = args.k, distance_path=distance_path, labels=train_labels)
+            trainloader = torch.utils.data.DataLoader(trainset, batch_size=self.args.train_batch,
+                                                      sampler=self.sampler, num_workers=2)  
+        
+            testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform_test)
+            testloader = torch.utils.data.DataLoader(testset, batch_size=self.args.test_batch, shuffle=False, num_workers=2)
+
+        elif args.dtst=="GTZAN":
+            transform_train = transforms.Compose([
+                transforms.RandomCrop(32, padding=4),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize((0.49942285, 0.44196516, 0.51240563),
+                                    (0.045276698, 0.014693823, 0.045283545)),
+            ])
+            transform_test = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize((0.49942285, 0.44196516, 0.51240563),
+                                    (0.045276698, 0.014693823, 0.045283545)),
+            ])
+        
+            train_dir='GTZAN_train_images'
+            test_dir='GTZAN_test_images'
+
+            train_labels = np.load('GTZAN_training_labels.npy')
+
+            trainset = torchvision.datasets.ImageFolder(train_dir, transform=transform_train)
+
+            distance_path = args.distance_path + args.distance_technique + "_distances.npy"
+            self.sampler = get_sampler(technique=self.sample_technique, dataset_len=len(trainset), 
+                                                  subset_percentage = args.k, distance_path=distance_path, labels=train_labels)
+            trainloader = torch.utils.data.DataLoader(trainset, batch_size=self.args.train_batch,
                                                   sampler=self.sampler, num_workers=2)  
+
+            testset = torchvision.datasets.ImageFolder(test_dir, transform=transform_test)
+            testloader = torch.utils.data.DataLoader(testset, batch_size=self.args.test_batch, shuffle=False, num_workers=2)
+            
+        elif args.dtst=="SpeechCommands":
+            transform_train = transforms.Compose([
+                transforms.RandomCrop(32, padding=4),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize((0.49942285, 0.44196516, 0.51240563),
+                                    (0.045276698, 0.014693823, 0.045283545)),
+            ])
+            transform_test = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize((0.49942285, 0.44196516, 0.51240563),
+                                    (0.045276698, 0.014693823, 0.045283545)),
+            ])
         
-        testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform_test)
-        testloader = torch.utils.data.DataLoader(testset, batch_size=self.args.test_batch, shuffle=False, num_workers=2)
+            train_dir='CLAR_train_images'
+            test_dir='CLAR_test_images'
+
+            train_labels = np.load('CLAR_training_labels.npy')
+
+            trainset = torchvision.datasets.ImageFolder(train_dir, transform=transform_train)
+
+            distance_path = args.distance_path + args.distance_technique + "_distances.npy"
+            self.sampler = get_sampler(technique=self.sample_technique, dataset_len=len(trainset),
+                                                  subset_percentage = args.k, distance_path=distance_path, labels=train_labels)
+            trainloader = torch.utils.data.DataLoader(trainset, batch_size=self.args.train_batch,
+                                                  sampler=self.sampler, num_workers=2)
+
+            testset = torchvision.datasets.ImageFolder(test_dir, transform=transform_test)
+            testloader = torch.utils.data.DataLoader(testset, batch_size=self.args.test_batch, shuffle=False, num_workers=2)
+        
         return trainloader, testloader
 
 
     def load_model(self):
         # get resnet18, change last layer depending on dataset (todo)
         model = torchvision.models.resnet18(pretrained=False)
-        model.fc = nn.Linear(512, 10)
+        
+        if args.dtst=="SpeechCommands":
+            model.fc = nn.Linear(512, 35)  #SpeechCommands has 35 classes
+        else:
+            model.fc = nn.Linear(512, 10)
+            
         model = model.to(self.device)
         return model
 
@@ -140,6 +212,7 @@ class ExperimentRunner():
         # if int(epoch * self.args.k + 0.99) == int(epoch * self.args.k):
         #     self.scheduler.step()
         
+
         self.scheduler.step()
         
         self.sampler.feedback({"losses": losses, "corrects": corrects, "batch_size": self.args.train_batch})
@@ -182,18 +255,19 @@ class ExperimentRunner():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Resnet Finetuner")
-    parser.add_argument("--lr", default=0.1, type=float, help="learning rate")
-    parser.add_argument("--st", default="mtds", type=str, help="Sampling Technique", choices=SAMPLER_TECHNIQUES)
-    parser.add_argument("--distance_path", default="embeddings/cifar_10_trained/", type=str, help="Path to distances npy file")
+    parser.add_argument("--dtst", default="CIFAR10", type=str, help="Dataset", choices=DATASETS)
+    parser.add_argument("--lr", default=1e-2, type=float, help="learning rate")
+    parser.add_argument("--st", default="forget_small", type=str, help="Sampling Technique", choices=SAMPLER_TECHNIQUES)
+    parser.add_argument("--distance_path", default="embeddings/cifar_10_trained_from_100/", type=str, help="Path to distances npy file") # _from_100/
     parser.add_argument("--distance_technique", default="skmedoids_per_class", type=str, help="The cluster technique used")
     parser.add_argument("--gpu", default=0, type=int, help="gpu id")
-    parser.add_argument("--epochs", default=500, type=int, help="epochs")
+    parser.add_argument("--epochs", default=400, type=int, help="epochs")
     parser.add_argument("--momentum", default=0.9, type=float, help="momentum")
     parser.add_argument("--weight_decay", default=5e-4, type=float, help="weight_decay")
     parser.add_argument("--train_batch", default=128, type=int, help="train batch size")
     parser.add_argument("--test_batch", default=512, type=int, help="test batch size")
     parser.add_argument("--save_checkpoints", default=True, type=bool, help="save_checkpoints")
-    parser.add_argument("--k", default=0.2, type=float, help="subset percentage")
+    parser.add_argument("--k", default=0.25, type=float, help="subset percentage")
     args = parser.parse_args()    
     # torch.cuda.set_device(args.gpu)
     
